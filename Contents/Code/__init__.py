@@ -165,23 +165,24 @@ def MostPopularSections(title, video_type):
 def ProduceShows(title):
     oc = ObjectContainer(title2=title)
     if 'MTV2' in title:
-        xpath = 'mtv2shows'
+        (xpath, xpath2) = ('content-box', 'text-block')
         local_url = BASE_URL + '/mtv2/'
     else:
-        xpath = 'currentShows'
-        local_url = BASE_URL + '/ontv'
+        (xpath, xpath2) = ('item promo-block', 'header')
+        local_url = BASE_URL + '/shows'
     data = HTML.ElementFromURL(local_url, cacheTime = CACHE_1HOUR)
 
-    for video in data.xpath('//div[contains(@class, "%s")]//div[@class="content-box"]/a' %xpath):
+    for video in data.xpath('//div[@class="%s"]/a' %xpath):
         url = video.xpath('./@href')[0]
         if not url.startswith('http://'):
             url = BASE_URL + url
-        title = video.xpath('.//img/@alt')[0].title()
+        title = video.xpath('.//div[@class="%s"]/span//text()' %xpath2)[0].title()
         title = title.replace('&#36;', '$')
-        thumb = video.xpath('.//img/@src')[0].split('?')[0]
+        try: thumb = video.xpath('.//div[contains(@class,"thumb")]/@data-src')[0]
+        except: thumb = video.xpath('.//img/@src')[0].split('?')[0]
         if '/shows/' in url:
             # These shows have a bad url, so fix it first
-            if 'teen_mom_2/series.jhtml' in url or 'awkward/series.jhtml' in url:
+            if '/teen_mom_2/series.jhtml' in url or '/awkward/series.jhtml' in url or '/friendzone/series.jhtml' in url or '/truelife/series.jhtml' in url:
                 url = url.split('series.jhtml')[0]
             # This is for those shows with old format
             if url.endswith('series.jhtml'):
@@ -293,7 +294,7 @@ def ShowSeasons(title, thumb, url):
     new_season_list = html.xpath('//span[@id="season-dropdown"]//li/a')
     if len(new_season_list)> 0:
         for section in new_season_list:
-            title = section.xpath('./span[@class="headline-s"]//text()')[0].strip().title()
+            title = section.xpath('./span//text()')[0].strip().title()
             season = int(title.split()[1])
             season_id = section.xpath('./@data-id')[0]
             oc.add(DirectoryObject(key=Callback(ShowSections, title=title, thumb=thumb, url=local_url, season=season, season_id=season_id), title=title, thumb=Resource.ContentsOfURLWithFallback(url=thumb, fallback=ICON)))
@@ -338,7 +339,7 @@ def ShowVideos(title, url, season):
     oc = ObjectContainer(title2=title)
     try: data = HTML.ElementFromURL(url)
     except: return ObjectContainer(header="Empty", message="There are no videos to list right now.")
-    video_list = data.xpath('//div[@class="span4"]')
+    video_list = data.xpath('//div[contains(@class,"grid-item")]')
     for video in video_list:
         try: vid_avail = video.xpath('.//div[@class="message"]//text()')[0]
         except: vid_avail = 'Now'
@@ -346,7 +347,7 @@ def ShowVideos(title, url, season):
         try: vid_title = video.xpath('.//div[@class="sub-header"]/span//text()')[0].strip()
         except: vid_title = video.xpath('.//div[@class="header"]/span[@class="hide"]//text()')[0].strip()
         thumb = video.xpath('.//div[@class=" imgDefered"]/@data-src')[0]
-        seas_ep = video.xpath('.//div[@class="header"]/span[@class="headline"]//text()')[0].strip()
+        seas_ep = video.xpath('.//div[@class="header"]/span//text()')[0].strip()
         if vid_avail == 'not available':
             continue
         if vid_avail == 'Now':
