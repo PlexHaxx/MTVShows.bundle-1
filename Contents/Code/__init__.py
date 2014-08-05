@@ -5,15 +5,11 @@ ICON = 'icon-default.png'
 
 BASE_URL = 'http://www.mtv.com'
 SHOWS = 'http://www.mtv.com/ontv'
-MTV_SHOWS_ALL = 'http://www.mtv.com/ontv/all/'
+SHOWS_AZ = 'http://www.mtv.com/shows/azfilter?template=/shows/home2/modules/azFilter&startingCharac=%s&resultSize=50'
 MTV_POPULAR = 'http://www.mtv.com/most-popular/%smetric=numberOfViews&range=%s&order=desc'
 # The three variables below produce the results page for videos for shows with the new format
-NEW_SHOW_AJAX = 'http://www.mtv.com/include/shows/seasonAllVideosAjax?id=%s&seasonId=%s&resultSize=1000&template=%s&start=0'
-ALL_VID_TEMP = '%2Fshows%2Fplatform%2Fwatch%2Fmodules%2FseasonRelatedPlaylists'
-FULL_EP_TEMP = '%2Fshows%2Fplatform%2Fwatch%2Fmodules%2FepisodePlaylists'
-# The code below is used for the new format when a season id is not given to show full episodes,
-# but there is only one show with this situation so just using the actual page for that one
-NEW_SHOW_ALT_AJAX = 'http://www.mtv.com/include/series/relatedEpisodes?id=%s&seasonId=%s&resultSize=30&template=%2Fshows%2Fplatform%2Fwatch%2Fmodules%2FepisodePlaylists&start='
+ALL_VID_AJAX = 'http://www.mtv.com/include/shows/seasonAllVideosAjax?id=%s&seasonId=%s&resultSize=1000&template=/shows/platform/watch/modules/seasonRelatedPlaylists&start=0'
+FULL_EP_AJAX = 'http://www.mtv.com/shows/seasonAllVideosAjax?device=desktop&id=%s&seasonId=%s&filter=fullEpisodes&template=/shows/platform/watch/modules/episodePlaylists'
 BUILD_URL = 'http://www.mtv.com/video/?id='
 
 RE_SEASON  = Regex('Season (\d{1,2})')
@@ -109,7 +105,7 @@ def MTVShows(title):
     # The MTV2 currents shows link ('http://www.mtv.com/ontv/all/currentMtv2.jhtml') could also be used with AllShows() function
     oc.add(DirectoryObject(key=Callback(ProduceShows, title='Current MTV2 Shows'), title='Current MTV2 Shows')) 
     oc.add(DirectoryObject(key=Callback(ProduceSpecials, title='MTV Specials'), title='MTV Specials')) 
-    oc.add(DirectoryObject(key=Callback(ShowsAll, title='All MTV & MTV2 Shows'), title='MTV All Shows')) 
+    oc.add(DirectoryObject(key=Callback(Alphabet, title='Shows A to Z'), title='Shows A to Z'))
     # THE MENU ITEM BELOW CONNECTS TO A FUNCTION WITHIN THIS CHANNEL CODE THAT PRODUCES A LIST OF SHOWS FOR USERS 
     # IT DOES NOT USE OR INTERACT WITH THE SEARCH SERVICES FOR VIDEOS LISTED NEXT
     #To get the InputDirectoryObject to produce a search input in Roku, prompt value must start with the word "search"
@@ -198,6 +194,33 @@ def ProduceShows(title):
     else:
         return oc
 #####################################################################################
+# For Producing a to z list of shows
+@route(PREFIX + '/alphabet')
+def Alphabet(title):
+    oc = ObjectContainer(title2=title)
+    for ch in list('ABCDEFGHIJKLMNOPQRSTUVWXYZ'):
+        url=SHOWS_AZ %ch
+        oc.add(DirectoryObject(key=Callback(ShowsAZ, title=ch, url=url), title=ch))
+    return oc
+#####################################################################################
+# For Producing a to z list of shows
+@route(PREFIX + '/showsaz')
+def ShowsAZ(title, url):
+    oc = ObjectContainer(title2=title)
+    data = HTML.ElementFromURL(url, cacheTime = CACHE_1HOUR)
+    for items in data.xpath('//ul/li/a'):
+        url = BASE_URL + items.xpath('./@href')[0]
+        title = items.xpath('.//text()')[0]
+        if url=='#':
+            continue
+        if 'series.jhtml' in url:
+            if 'jersey'in url:
+                oc.add(DirectoryObject(key=Callback(ShowOldSections, title=title, url=url, season=0), title=title))
+                continue
+            url = url.split('series.jhtml')[0]
+        oc.add(DirectoryObject(key=Callback(ShowSeasons, title=title, url=url), title=title))
+    return oc
+#####################################################################################
 # For Producing the Specials Archive list of shows
 @route(PREFIX + '/producespecials')
 def ProduceSpecials(title):
@@ -207,64 +230,10 @@ def ProduceSpecials(title):
         title = specials['title']
         oc.add(DirectoryObject(key=Callback(SpecialSections, title=title, url=url), title=title))
     return oc
-#########################################################################################
-# This functions pulls the full archive list of shows for MTV from  '/ontv/all/'. This list includes specials.
-@route(PREFIX + '/showsall')
-def ShowsAll(title, page=1):
-    oc = ObjectContainer(title2=title)
-    local_url = '%s?page=%s' %(MTV_SHOWS_ALL, str(page))
-    # THIS IS A UNIQUE DATA PULL
-    data = HTML.ElementFromURL(local_url, cacheTime = CACHE_1HOUR)
-    for video in data.xpath('//div[@class="mdl"]/div/div/ol[@class="lst "]/li'):
-        try: url = BASE_URL + video.xpath('./div[@class="title2"]/a/@href')[0]
-        except: continue
-        title = video.xpath('./div[@class="title2"]/meta/@content')[0]
-        thumb = video.xpath('./div[@class="title2"]/a/img/@src')[0]
-        thumb = thumb.replace('70x53.jpg?quality=0.85', '140x105.jpg')
-
-        if '/shows/' in url:
-            if '/season_' in url:
-                season = int(url.split('/season_')[1].split('/')[0])
-            else:
-                season = 1
-            # Old formated shows go straight to the section production and are already broken up by seasons
-            if url.endswith('series.jhtml'):
-                oc.add(DirectoryObject(key=Callback(ShowOldSections, title=title, url=url, thumb=thumb, season=season), title = title, thumb = thumb))
-            # New shows do not have unique addresses for season so they go to the NewSeason function broken up by season
-            # 16 AND PREGNANT AND Rob Dyrdek's Fantasy Factory ARE SHOWING WITH NEW URLS AND FORMAT IN SHOW ARCHIVE
-            else:
-                oc.add(DirectoryObject(key=Callback(ShowSeasons, title=title, url=url, thumb=thumb), title = title, thumb = thumb))
-                
-        elif '/ontv/' in url:
-            if 'Archive' in title:
-                if 'archive' not in url:
-                    url = url + 'archive/'
-                oc.add(DirectoryObject(key=Callback(SpecialSections, title=title, url=url), title=title, thumb=thumb))
-            else:
-                url + '/video.jhtml'
-                oc.add(DirectoryObject(key=Callback(VideoPage, title=title, url=vid_url), title = title, thumb=thumb))
-        else:
-            pass
-
-# Paging code that looks for next page url code and pulls the number asssociated with it
-    try:
-        page = data.xpath('//div[@class="pagintation"]/a[@class="page-next"]/@href')[0]
-        page = page.split('=')[1]
-        oc.add(NextPageObject(
-            key = Callback(ShowsAll, title = title, page = page), 
-            title = L("Next Page ...")))
-    except:
-        pass
-  
-    if len(oc) < 1:
-        Log ('still no value for All Show objects')
-        return ObjectContainer(header="Empty", message="There are no shows to list right now.")
-    else:
-        return oc
 #######################################################################################
 # This function produces sections for shows with old table format
 @route(PREFIX + '/showoldsections', season=int)
-def ShowOldSections(title, thumb, url, season=0):
+def ShowOldSections(title, url, thumb='', season=0):
     oc = ObjectContainer(title2=title)
     local_url = url.replace('series', 'video')
     data = HTML.ElementFromURL(local_url, cacheTime = CACHE_1HOUR)
@@ -287,7 +256,7 @@ def ShowOldSections(title, thumb, url, season=0):
 #######################################################################################
 # This function produces sections for shows with new format
 @route(PREFIX + '/showseasons')
-def ShowSeasons(title, thumb, url):
+def ShowSeasons(title, url, thumb=''):
     oc = ObjectContainer(title2=title)
     local_url = url + 'video/'
     html = HTML.ElementFromURL(local_url, cacheTime = CACHE_1HOUR)
@@ -320,11 +289,11 @@ def ShowSections(title, thumb, url, season, season_id=''):
         url = BASE_URL + section.xpath('./@href')[0]
         section_title = section.xpath('./span/text()')[0].title()
         if 'Full Episodes' in section_title:
-            template = FULL_EP_TEMP
+            new_url = FULL_EP_AJAX
         else:
-            template = ALL_VID_TEMP
+            new_url = ALL_VID_AJAX
         if season_id:
-            new_url = NEW_SHOW_AJAX %(id, season_id, template)
+            new_url = new_url %(id, season_id)
         else:
             new_url = url
         oc.add(DirectoryObject(key=Callback(ShowVideos, title=section_title, url=new_url, season=season), title=section_title, thumb=thumb))
