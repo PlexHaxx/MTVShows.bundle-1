@@ -5,11 +5,11 @@ ICON = 'icon-default.png'
 
 BASE_URL = 'http://www.mtv.com'
 SHOWS = 'http://www.mtv.com/ontv'
-SHOWS_AZ = 'http://www.mtv.com/shows/azfilter?template=/shows/home2/modules/azFilter&startingCharac=%s&resultSize=50'
+SHOWS_AZ = 'http://www.mtv.com/include/series/azFilter?template=/hubs/shows/modules/azFilter&startingCharac=%s&resultSize=50'
 MTV_POPULAR = 'http://www.mtv.com/most-popular/%smetric=numberOfViews&range=%s&order=desc'
 # The three variables below produce the results page for videos for shows with the new format
 ALL_VID_AJAX = 'http://www.mtv.com/include/shows/seasonAllVideosAjax?id=%s&seasonId=%s&resultSize=1000&template=/shows/platform/watch/modules/seasonRelatedPlaylists&start=0'
-FULL_EP_AJAX = 'http://www.mtv.com/shows/seasonAllVideosAjax?device=desktop&id=%s&seasonId=%s&filter=fullEpisodes&template=/shows/platform/watch/modules/episodePlaylists'
+FULL_EP_AJAX = 'http://www.mtv.com/shows/seasonAllVideosAjax?device=desktop&id=%s&seasonId=%s&filter=fullEpisodes&template=/shows/platform/watch/modules/seasonRelatedPlaylists'
 BUILD_URL = 'http://www.mtv.com/video/?id='
 
 RE_SEASON  = Regex('Season (\d{1,2})')
@@ -75,23 +75,17 @@ def ShowSearch(query):
     html = HTML.ElementFromURL(url)
     for item in html.xpath('//div[@id="searchResults"]/ul/li'):
         link = item.xpath('.//a/@href')[0]
-        # This make sure it only returns show pages by making sure the url starts with www.mtv.com/shows/ that may contain /season_?/ and ends with / or series.jhtml
+        # This make sure it only returns show pages by making sure the url starts with www.mtv.com/shows/ 
         try:
-            season = 0
             url_part = link.split('http://www.mtv.com/shows/')[1]
-            if 'season_' in url_part:
-                season = int(url_part.split('season_')[1].split('/')[0])
-                url_test = url_part.split('/')[2]
-            else:
-                url_test = url_part.split('/')[1]
+            url_test = url_part.split('/')[1]
             if not url_test or url_test=='series.jhtml':
                 title = item.xpath('./div[contains(@class,"mtvn-item-content")]//a//text()')[0]
                 thumb = item.xpath('.//img/@src')[0].split('?')[0]
                 # Most shows are listed by individual season in the show search unless new format
                 if link.endswith('series.jhtml'):
-                    oc.add(DirectoryObject(key=Callback(ShowOldSections, title=title, thumb=thumb, url=link, season=season), title=title, thumb = thumb))
-                else:
-                    oc.add(DirectoryObject(key=Callback(ShowSeasons, title=title, thumb=thumb, url=link), title=title, thumb = thumb))
+                    link = link.split('series.jhtml')[0]
+                oc.add(DirectoryObject(key=Callback(ShowSeasons, title=title, thumb=thumb, url=link), title=title, thumb = thumb))
         except:
             continue
     return oc
@@ -161,30 +155,26 @@ def MostPopularSections(title, video_type):
 def ProduceShows(title):
     oc = ObjectContainer(title2=title)
     if 'MTV2' in title:
-        (xpath, xpath2) = ('content-box', 'text-block')
+        xpath = 'popular-shows'
         local_url = BASE_URL + '/mtv2/'
     else:
-        (xpath, xpath2) = ('item promo-block', 'header')
+        xpath = 'sec-popshows'
         local_url = BASE_URL + '/shows'
     data = HTML.ElementFromURL(local_url, cacheTime = CACHE_1HOUR)
 
-    for video in data.xpath('//div[@class="%s"]/a' %xpath):
+    for video in data.xpath('//section[@id="%s"]//a' %xpath):
         url = video.xpath('./@href')[0]
         if not url.startswith('http://'):
             url = BASE_URL + url
-        title = video.xpath('.//div[@class="%s"]/span//text()' %xpath2)[0].title()
+        title = video.xpath('.//div[@class="header"]/span//text()')[0].title()
         title = title.replace('&#36;', '$')
-        try: thumb = video.xpath('.//div[contains(@class,"thumb")]/@data-src')[0]
-        except: thumb = video.xpath('.//img/@src')[0].split('?')[0]
+        thumb = video.xpath('.//div[contains(@class,"thumb")]/@data-src')[0]
+        thumb = thumb + '?width=384&height=216'
         if '/shows/' in url:
-            # These shows have a bad url, so fix it first
-            if '/teen_mom_2/series.jhtml' in url or '/awkward/series.jhtml' in url or '/friendzone/series.jhtml' in url or '/truelife/series.jhtml' in url:
-                url = url.split('series.jhtml')[0]
-            # This is for those shows with old format
+            # A few shows have a bad url, so fix it first
             if url.endswith('series.jhtml'):
-                oc.add(DirectoryObject(key=Callback(ShowOldSections, title=title, thumb=thumb, url=url), title=title, thumb = thumb))
-            else:
-                oc.add(DirectoryObject(key=Callback(ShowSeasons, title=title, thumb=thumb, url=url), title=title, thumb = thumb))
+                url = url.split('series.jhtml')[0]
+            oc.add(DirectoryObject(key=Callback(ShowSeasons, title=title, thumb=thumb, url=url), title=title, thumb = thumb))
 
     oc.objects.sort(key = lambda obj: obj.title)
 
@@ -214,9 +204,6 @@ def ShowsAZ(title, url):
         if url=='#':
             continue
         if 'series.jhtml' in url:
-            if 'jersey'in url:
-                oc.add(DirectoryObject(key=Callback(ShowOldSections, title=title, url=url, season=0), title=title))
-                continue
             url = url.split('series.jhtml')[0]
         oc.add(DirectoryObject(key=Callback(ShowSeasons, title=title, url=url), title=title))
     return oc
@@ -229,29 +216,6 @@ def ProduceSpecials(title):
         url = specials['url']
         title = specials['title']
         oc.add(DirectoryObject(key=Callback(SpecialSections, title=title, url=url), title=title))
-    return oc
-#######################################################################################
-# This function produces sections for shows with old table format
-@route(PREFIX + '/showoldsections', season=int)
-def ShowOldSections(title, url, thumb='', season=0):
-    oc = ObjectContainer(title2=title)
-    local_url = url.replace('series', 'video')
-    data = HTML.ElementFromURL(local_url, cacheTime = CACHE_1HOUR)
-    # First check to make sure there are videos for this show
-    # FOUND THAT SOME DO NOT HAVE A WATCH VIDEO LINK ON THE SIDE BUT ALL HAVE WATCH VIDEO IN THE TITLE OF THE VIDEO PAGE
-    video_check = data.xpath('//div/h1//text()')[0]
-    if video_check:
-        # This is for those shows that have sections listed below Watch Video
-        for section in data.xpath('//li[contains(@class,"-subItem")]/div/a'):
-            section_title = section.xpath('.//text()')[2].strip()
-            section_url = BASE_URL + section.xpath('./@href')[0]
-            oc.add(DirectoryObject(key=Callback(VideoPage, title=section_title, url=section_url, season=season), title=section_title, thumb=thumb))
-        # Add a section to show all videos
-        oc.add(DirectoryObject(key=Callback(VideoPage, title='All Videos', url=local_url, season=season), title='All Videos', thumb=thumb))
-    # This handles pages that do not have a Watch Video section
-    else:
-        Log ('still no value for objects')
-        return ObjectContainer(header="Empty", message="There are no videos listed for this show.")
     return oc
 #######################################################################################
 # This function produces sections for shows with new format
@@ -303,7 +267,7 @@ def ShowSections(title, thumb, url, season, season_id=''):
 # LIMITING RESULTS PER PAGE DOES NOT SEEM TO WORK SO REMOVED PAGING
 # FOR NOW I HAVE CHOSEN TO NOT SHOW RESULTS THAT HAVE "NOT AVAILABLE" BUT INCLUDE THOSE THAT GIVE A DATE FOR WHEN IT WILL BE AVAILABLE
 @route(PREFIX + '/showvideos', season=int, start=int)
-def ShowVideos(title, url, season):
+def ShowVideos(title, url, season=0):
 
     oc = ObjectContainer(title2=title)
     try: data = HTML.ElementFromURL(url)
@@ -368,25 +332,11 @@ def VideoPage(url, title, season=0):
     id_num_list = []
     data = HTML.ElementFromURL(url)
     for item in data.xpath('//li[@itemtype="http://schema.org/VideoObject"]'):
-        # This pulls data for show videos in table format
-        try:
-            link = item.xpath('./@mainurl')[0]
-            video_title = item.xpath('./@maintitle')[0]
-            image = item.xpath('./meta[@itemprop="thumbnail"]/@content')[0].split('?')[0]
-            date = item.xpath('./@mainposted')[0]
-            desc = item.xpath('./@maincontent')[0]
-            # Some videos are locked or unavailable but still listed on the site
-            # most have 'class="quarantineDate"' in, the description, but not all so using the text also
-            if 'quarantineDate' in desc or 'Not Currently Available' in desc:
-                continue
-        # This pulls data for all other types of videos
-        except:
-            link = item.xpath('.//a/@href')[0]
-            video_title = item.xpath('.//meta[@itemprop="name"]/@content')[0].strip()
-            image = item.xpath('.//*[@itemprop="thumbnail" or @class="thumb"]/@src')[0].split('?')[0]
-            try: date = item.xpath('.//time[@itemprop="datePublished"]//text()')[0]
-            except: date = ''
-            desc = None
+        link = item.xpath('.//a/@href')[0]
+        video_title = item.xpath('.//meta[@itemprop="name"]/@content')[0].strip()
+        image = item.xpath('.//*[@itemprop="thumbnail" or @class="thumb"]/@src')[0].split('?')[0]
+        try: date = item.xpath('.//time[@itemprop="datePublished"]//text()')[0]
+        except: date = ''
 
         if 'hrs ago' in date or 'today' in date or 'hr ago' in date:
             date = Datetime.Now()
@@ -433,9 +383,9 @@ def VideoPage(url, title, season=0):
             this_season = season
             
         if episode>0 or this_season>0:
-            oc.add(EpisodeObject(url=new_url, title=video_title, season=this_season, index=episode, summary=desc, originally_available_at=date, thumb=Resource.ContentsOfURLWithFallback(url=image)))
+            oc.add(EpisodeObject(url=new_url, title=video_title, season=this_season, index=episode, originally_available_at=date, thumb=Resource.ContentsOfURLWithFallback(url=image)))
         else:
-            oc.add(VideoClipObject(url=new_url, title=video_title, summary=desc, originally_available_at=date, thumb=Resource.ContentsOfURLWithFallback(url=image)))
+            oc.add(VideoClipObject(url=new_url, title=video_title, originally_available_at=date, thumb=Resource.ContentsOfURLWithFallback(url=image)))
 
     if len(oc) < 1:
         Log ('still no value for objects')
@@ -484,9 +434,7 @@ def SpecialArchives(title, url):
 def ArchiveSections(title, thumb, url):
 
     oc = ObjectContainer(title2=title)
-    # Check to see if there is a second pages here
     data = HTML.ElementFromURL(url, cacheTime = CACHE_1HOUR)
-    section_list =[]
     for videos in data.xpath('//div[@id="generic2"]//ol/li'):
         vid_id = videos.xpath('.//a//@href')[0].split('?id=')[1]
         title = videos.xpath('./p/strong/a//text()')[0]
